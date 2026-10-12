@@ -14,7 +14,7 @@ here = os.path.dirname(__file__)
 site_config = configparser.RawConfigParser()
 ini_path = os.path.join(here, 'configuration.ini')
 site_config.read_file(open(ini_path))
-expansion = site_config.getint('thj', 'expansion')
+expansion = site_config.getint('emu', 'expansion')
 
 driver = site_config.get('database', 'driver')
 user = site_config.get('database', 'user')
@@ -116,6 +116,7 @@ def _get_arg_list(tooltip=False):
         arg_list.append(ClickSpell.name.label('click_name'))
         arg_list.append(ProcSpell.id.label('proc_id'))
         arg_list.append(ProcSpell.name.label('proc_name'))
+        arg_list.append(ProcSpell.effect_base_value1.label('proc_max_damage'))
         arg_list.append(WornSpell.id.label('worn_id'))
         arg_list.append(WornSpell.name.label('worn_name'))
         arg_list.append(WornSpell.effect_base_value1.label('worn_value'))
@@ -181,26 +182,23 @@ def get_item_data(item_id, full=False):
     skill_mod = ret_dict['skillmodtype']
     scrolleffect = ret_dict['scrolleffect']
 
+    # An item can reference a spell id that is not in spells_new, e.g. when the spell
+    # file is trimmed after the item data is imported. Indexing an empty result raised
+    # IndexError and returned a 500 for the whole item page, so name it by id instead.
+    def spell_name(spell_id):
+        row = session.query(SpellsNew.name).filter(SpellsNew.id == spell_id).first()
+        return row[0] if row else 'Spell %s' % spell_id
+
     if worn > 0:
-        query = session.query(SpellsNew.name).filter(SpellsNew.id == worn)
-        result = query.all()
-        ret_dict['worn_name'] = result[0][0]
+        ret_dict['worn_name'] = spell_name(worn)
     if proc > 0:
-        query = session.query(SpellsNew.name).filter(SpellsNew.id == proc)
-        result = query.all()
-        ret_dict['proc_name'] = result[0][0]
+        ret_dict['proc_name'] = spell_name(proc)
     if click > 0:
-        query = session.query(SpellsNew.name).filter(SpellsNew.id == click)
-        result = query.all()
-        ret_dict['click_name'] = utils.check_sympathetic(result[0][0])
+        ret_dict['click_name'] = utils.check_sympathetic(spell_name(click))
     if focus > 0:
-        query = session.query(SpellsNew.name).filter(SpellsNew.id == focus)
-        result = query.all()
-        ret_dict['focus_name'] = result[0][0]
+        ret_dict['focus_name'] = spell_name(focus)
     if inst > 0:
-        query = session.query(SpellsNew.name).filter(SpellsNew.id == inst)
-        result = query.all()
-        ret_dict['inst_name'] = result[0][0]
+        ret_dict['inst_name'] = spell_name(inst)
     if banebody > 0:
         ret_dict['bane_body_name'] = utils.get_bane_dmg_body(banebody)
         ret_dict['bane_body_amount'] = ret_dict['banedmgamt']
@@ -238,7 +236,7 @@ def get_item_data(item_id, full=False):
         ret_dict['green'] = (int(ret_dict['color']) & 0x0000FF00) >> 8
         ret_dict['blue'] = (int(ret_dict['color']) & 0x000000FF)
 
-        ret_dict['thj_enabled'] = False
+        ret_dict['emu_enabled'] = False
         item_id = int(item_id)
         if item_id < 1000000:
             # See if Enchanted and Legendary exist
@@ -248,9 +246,9 @@ def get_item_data(item_id, full=False):
                 query = session.query(Item.id).filter(or_(Item.id == ench, Item.id == lego))
                 result = query.all()
                 if len(result) == 2:
-                    ret_dict['thj_enabled'] = True
+                    ret_dict['emu_enabled'] = True
         elif item_id > 1000000:
-            ret_dict['thj_enabled'] = True
+            ret_dict['emu_enabled'] = True
         # Get mobs that drop this as loot
         droppers = []
         orig_item_id = item_id
@@ -614,6 +612,9 @@ def get_items_with_filters(weights, ignore_zero, **kwargs):
             filters.append(Item.proceffect == SpellsNew.id)
             if kwargs['proc_type'] == 'Lifetap':
                 filters.append(SpellsNew.targettype == 13)
+            elif kwargs['proc_type'] == 'All':
+                filters.append(SpellsNew.effectid1 == 0)
+                filters.append(SpellsNew.effect_base_value1 < 0)
             elif kwargs['proc_type'] == 'Debuff':
                 filters.append(SpellsNew.buffduration > 0)
                 filters.append(SpellsNew.effectid1 == 0)
